@@ -27,8 +27,8 @@ The common case (capturing and recalling knowledge) is fully automatic. MCP Tool
 - **Passive-first.** Memory capture and recall happen automatically. The model is never responsible for logging interactions or fetching context — that is handled by event listeners and MCP Resources.
 - **Offline-first.** All persistence is local. No cloud dependencies for the core memory layer.
 - **Lifecycle management.** Every database connection opened must be explicitly closeable. The core class must expose a `close()` method.
-- **WAL mode.** All SQLite connections must enable `PRAGMA journal_mode=WAL` for safe concurrent reads/writes from multiple agent processes.
-- **Synchronous API honesty.** Since `better-sqlite3` is synchronous, public methods that only perform synchronous work must not be marked `async`. Reserve `async` for methods that genuinely perform asynchronous operations (e.g., PGvector queries, SurrealDB interactions).
+- **Transaction safety.** Relational writes must use PostgreSQL transactional guarantees and proper isolation levels where needed.
+- **API honesty.** Public methods must only be marked `async` when they perform asynchronous operations.
 
 ---
 
@@ -37,7 +37,7 @@ The common case (capturing and recalling knowledge) is fully automatic. MCP Tool
 | Layer | Technology | Purpose |
 |---|---|---|
 | Runtime | Node.js 18+ | Native test runner, ESM support |
-| Relational persistence | `better-sqlite3` | Per-project structured memory (interaction logs) |
+| Relational persistence | PostgreSQL (`pg`) | Project-scoped structured memory (interaction logs + metadata) |
 | Graph persistence | SurrealDB | Knowledge graph storage with native graph traversals, relations, and path queries |
 | Vector / semantic memory | PostgreSQL + `pgvector` | Embedding-based similarity search for knowledge retrieval |
 | Agent protocol | `@modelcontextprotocol/sdk` | MCP server to expose Hypnos tools to agents |
@@ -50,17 +50,17 @@ All npm dependencies are installed in the project root. SurrealDB and PostgreSQL
 
 ## 4. Persistence Architecture
 
-### 4.1 Project Store — SQLite (interaction logs)
+### 4.1 Project Relational Store — PostgreSQL
 
-Each project that Hypnos is activated on gets a `.hypnos/` directory at the project root containing a `memory.db` SQLite file. This stores interaction logs only. This directory should be added to `.gitignore`.
+Each project is isolated in PostgreSQL using a project-specific schema (`hypnos_<project_hash>`). The schema stores interaction logs and any project-local relational metadata.
 
-### 4.2 Global Metadata Store — SQLite
+### 4.2 Global Metadata Store — PostgreSQL
 
-A single SQLite file in the user's OS config directory (`~/.config/hypnos/global.db` on Linux/macOS, `%APPDATA%/hypnos/global.db` on Windows) tracks all known projects, their paths, and the last time each was accessed. This is used for housekeeping and the sleep cycle scheduler — never for project-specific knowledge.
+Global metadata is stored in a dedicated shared schema (for example `hypnos_global`) in PostgreSQL. It tracks known projects, paths, and access/sleep-cycle timestamps. This schema must not store project-private knowledge content beyond metadata.
 
 ### 4.3 Knowledge Graph Store — SurrealDB
 
-SurrealDB is used as a dedicated graph database for the knowledge graph. Each project gets its own **namespace and database** within SurrealDB, derived from a hash of the project root path, ensuring project isolation at the data layer. SurrealDB provides native graph traversals, relation records, and recursive path queries — capabilities that a flat SQLite triple table cannot offer.
+SurrealDB is used as a dedicated graph database for the knowledge graph. Each project gets its own **namespace and database** within SurrealDB, derived from a hash of the project root path, ensuring project isolation at the data layer. SurrealDB provides native graph traversals, relation records, and recursive path queries.
 
 Connection credentials are read from the `.env` file (see Section 9).
 
@@ -74,18 +74,18 @@ Connection credentials are read from the `.env` file (see Section 9).
 
 ## 5. Database Schema
 
-### 5.1 Project Database (`<project-root>/.hypnos/memory.db`)
+### 5.1 Project Relational Schema — PostgreSQL (`schema: hypnos_<project_hash>`)
 
 **Table: `interaction_logs`** — Event-sourced record of every meaningful agent interaction.
 
 | Column | Type | Description |
 |---|---|---|
-| `id` | INTEGER, PK, AUTOINCREMENT | Unique row ID |
-| `timestamp` | DATETIME, DEFAULT CURRENT_TIMESTAMP | When the event occurred |
+| `id` | BIGSERIAL, PK | Unique row ID |
+| `timestamp` | TIMESTAMPTZ, DEFAULT NOW() | When the event occurred |
 | `event_type` | TEXT | Category: `code_fix`, `preference`, `pattern`, `error`, `suggestion` |
 | `content` | TEXT | The raw data, code snippet, or natural-language description |
 | `user_feedback` | INTEGER | `1` = user validated/accepted, `-1` = user corrected/rejected, `0` = no feedback yet |
-| `metadata` | TEXT | JSON string with arbitrary structured context (file path, language, tags, etc.) |
+| `metadata` | JSONB | Structured context (file path, language, tags, etc.) |
 
 ### 5.2 Knowledge Graph — SurrealDB (`namespace: hypnos_<project_hash>`, `database: knowledge`)
 
@@ -126,16 +126,16 @@ Graph queries (traversals, shortest path, pattern matching) use SurrealDB's nati
 
 An **IVFFlat or HNSW index** must be created on the `embedding` column for efficient approximate nearest-neighbor search.
 
-### 5.4 Global Database (`<config-dir>/hypnos/global.db`)
+### 5.4 Global Metadata Schema — PostgreSQL (`schema: hypnos_global`)
 
 **Table: `projects`**
 
 | Column | Type | Description |
 |---|---|---|
-| `id` | INTEGER, PK, AUTOINCREMENT | Unique row ID |
+| `id` | BIGSERIAL, PK | Unique row ID |
 | `path` | TEXT, UNIQUE | Absolute path to the project root |
-| `last_accessed` | DATETIME | Last time Hypnos was active on this project |
-| `last_sleep_cycle` | DATETIME, NULLABLE | Last time a sleep cycle completed for this project |
+| `last_accessed` | TIMESTAMPTZ | Last time Hypnos was active on this project |
+| `last_sleep_cycle` | TIMESTAMPTZ, NULLABLE | Last time a sleep cycle completed for this project |
 
 ---
 
@@ -146,7 +146,7 @@ The project must produce the following files at minimum:
 ```
 hypnos/
 ├── src/
-│   ├── database.js          # SQLite connection factory (project + global)
+│   ├── database.js          # PostgreSQL connection factory (project + global schemas)
 │   ├── surreal-client.js    # SurrealDB connection & knowledge graph operations
 │   ├── vector-store.js      # PGvector connection & embedding operations
 │   ├── event-listener.js    # Passive event capture (write path)
@@ -165,22 +165,21 @@ hypnos/
 
 ## 7. Module Responsibilities
 
-### 7.1 `database.js` (SQLite only)
+### 7.1 `database.js` (PostgreSQL relational layer)
 
-- Export a `getProjectDb(projectRoot)` function that:
-  1. Creates the `.hypnos/` directory inside `projectRoot` if it does not exist.
-  2. Opens (or creates) `memory.db` inside that directory.
-  3. Enables WAL mode.
-  4. Runs the `interaction_logs` schema creation (Section 5.1) idempotently (`CREATE TABLE IF NOT EXISTS`).
-  5. Returns the `better-sqlite3` database instance.
+- Export a `getPostgresPool()` function that:
+  1. Reads PostgreSQL credentials from environment variables.
+  2. Creates and returns a shared `pg` connection pool.
 
-- Export a `getGlobalDb()` function that:
-  1. Resolves the OS-appropriate config directory.
-  2. Creates the `hypnos/` directory there if it does not exist.
-  3. Opens (or creates) `global.db`.
-  4. Enables WAL mode.
-  5. Runs the schema creation (Section 5.4) idempotently.
-  6. Returns the database instance.
+- Export an `ensureProjectSchema(pool, projectRoot)` function that:
+  1. Derives `hypnos_<project_hash>` from `projectRoot`.
+  2. Creates the schema if it does not exist.
+  3. Creates `interaction_logs` idempotently (`CREATE TABLE IF NOT EXISTS`) per Section 5.1.
+  4. Returns the schema name.
+
+- Export an `ensureGlobalSchema(pool)` function that:
+  1. Creates `hypnos_global` schema if it does not exist.
+  2. Creates the `projects` table idempotently per Section 5.4.
 
 ### 7.2 `surreal-client.js` (Knowledge Graph)
 
@@ -240,10 +239,10 @@ This class is consumed by the MCP server's Resource handler (Section 7.7).
 
 Export a `HypnosCore` class with the following contract:
 
-- **`constructor(projectRoot)`** — Stores the project root. Initializes the SQLite project database via `getProjectDb`. Registers/updates the project in the global database via `getGlobalDb`. Creates instances of `SurrealKnowledgeGraph` and `VectorStore` (but does not connect them yet — that happens in `init()`).
-- **`async init()`** — Calls `connect()` on both the `SurrealKnowledgeGraph` and `VectorStore` instances. Must be called after construction before using any async methods.
-- **`recordInteraction(type, content, feedback?, metadata?)`** — Inserts a row into `interaction_logs`. `feedback` defaults to `0`, `metadata` defaults to `{}` and is serialized as JSON. This method is synchronous (no `async`) since it only touches SQLite. **This is called by `EventListener`, not by the LLM.**
-- **`getInteractions(filter?)`** — Queries `interaction_logs` with optional filtering by `event_type`, `user_feedback`, or date range. Returns an array of row objects. Synchronous.
+- **`constructor(projectRoot)`** — Stores the project root. Creates instances of the PostgreSQL relational layer, `SurrealKnowledgeGraph`, and `VectorStore` (remote connects happen in `init()`).
+- **`async init()`** — Initializes relational schemas (`ensureProjectSchema`, `ensureGlobalSchema`) and calls `connect()` on both `SurrealKnowledgeGraph` and `VectorStore`. Must be called after construction before using async methods.
+- **`async recordInteraction(type, content, feedback?, metadata?)`** — Inserts a row into `interaction_logs`. `feedback` defaults to `0`, `metadata` defaults to `{}` and is stored as JSONB. **This is called by `EventListener`, not by the LLM.**
+- **`async getInteractions(filter?)`** — Queries `interaction_logs` with optional filtering by `event_type`, `user_feedback`, or date range. Returns an array of row objects.
 - **`async runSleepCycle()`** — The Generative Sleep consolidation process. This method is async because it interacts with SurrealDB and PGvector. It must:
   1. Query all `interaction_logs` where `user_feedback != 0`.
   2. For each validated log (`user_feedback = 1`): extract entity/relation/target triples and upsert them into SurrealDB via `SurrealKnowledgeGraph.upsertEntity()` and `upsertRelation()`.
@@ -253,7 +252,7 @@ Export a `HypnosCore` class with the following contract:
 - **`async queryKnowledge(entity?)`** — Queries the SurrealDB knowledge graph via `SurrealKnowledgeGraph.queryByEntity()`. Returns all relations for the given entity.
 - **`async traverseKnowledge(from, to, maxDepth?)`** — Delegates to `SurrealKnowledgeGraph.traversePath()`. Returns graph paths between two concepts.
 - **`async semanticSearch(queryEmbedding, nResults?)`** — Searches PGvector via `VectorStore.search()`. Returns the top `nResults` (default 5) matches with their content and distances.
-- **`async close()`** — Closes all connections: SQLite (project + global), SurrealDB, and PostgreSQL. Must be called during shutdown.
+- **`async close()`** — Closes all connections: PostgreSQL pool, SurrealDB, and PGvector resources. Must be called during shutdown.
 
 ### 7.7 `mcp-server.js`
 
@@ -382,6 +381,12 @@ A `.env` file in the **project root** holds all connection credentials and confi
 | `HYPNOS_CONTEXT_MAX_TOKENS` | `2000` | Maximum token budget for auto-injected `[Project Memory]` context |
 | `HYPNOS_CONTEXT_RECENT_LIMIT` | `20` | Number of recent interactions to include in context summary |
 
+Global relational schema settings:
+
+| Variable | Default | Description |
+|---|---|---|
+| `HYPNOS_GLOBAL_SCHEMA` | `hypnos_global` | PostgreSQL schema name for global metadata (`projects`) |
+
 All modules must read credentials via `process.env` after `dotenv` has loaded the `.env` file. Credentials must **never** be hardcoded.
 
 ---
@@ -392,9 +397,7 @@ The generated `.gitignore` must include at minimum:
 
 ```
 node_modules/
-.hypnos/
 .env
-*.db
 ```
 
 ---
@@ -415,7 +418,7 @@ These items are documented for architectural awareness but must NOT be implement
 The implementing agent must complete these steps in order:
 
 1. Initialize the npm project (`package.json`).
-2. Install all dependencies from Section 3 (`better-sqlite3`, `@modelcontextprotocol/sdk`, `surrealdb`, `pg`, `dotenv`).
+2. Install all dependencies from Section 3 (`@modelcontextprotocol/sdk`, `surrealdb`, `pg`, `dotenv`).
 3. Create `.gitignore` per Section 10.
 4. Create `.env.example` per Section 9.
 5. Implement `src/database.js` per Section 7.1.
@@ -428,4 +431,4 @@ The implementing agent must complete these steps in order:
 12. Implement `test/hypnos.test.js` per Section 8.
 13. Ensure SurrealDB and PostgreSQL (with pgvector) are running.
 14. Run the test suite and ensure all 18 tests pass.
-15. Verify `.hypnos/` directories are created and cleaned up correctly.
+15. Verify project schemas and global metadata schema are created and cleaned up correctly.

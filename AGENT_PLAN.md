@@ -10,8 +10,7 @@ human_optimized: false
 - Enforce strict project isolation by project root path hash for all stores.
 - Use local/offline-first persistence only.
 - Do not add out-of-scope features from Section 11 of DEFINITION.md.
-- Keep synchronous methods synchronous when only using `better-sqlite3`.
-- Ensure all SQLite connections run `PRAGMA journal_mode=WAL`.
+- Use PostgreSQL transactional guarantees for relational consistency.
 - Implement explicit lifecycle close via `HypnosCore.close()` for all backends.
 
 ## 1. OUTPUT FILE CONTRACT
@@ -41,7 +40,6 @@ inputs:
 actions:
 1. Initialize npm project in repo root.
 2. Install dependencies:
-   - `better-sqlite3`
    - `@modelcontextprotocol/sdk`
    - `surrealdb`
    - `pg`
@@ -61,25 +59,23 @@ exit_criteria:
 - `npm install` completes.
 - `npm run test` can execute test file path (even if tests are placeholders at this point).
 
-### PHASE 2 — SQLITE FOUNDATION (`src/database.js`)
+### PHASE 2 — RELATIONAL FOUNDATION (`src/database.js`)
 
 actions:
-1. Implement `getProjectDb(projectRoot)`:
-   - create `<projectRoot>/.hypnos/`
-   - open/create `<projectRoot>/.hypnos/memory.db`
-   - apply WAL mode
-   - create `interaction_logs` schema idempotently
-2. Implement `getGlobalDb()`:
-   - resolve OS config directory (Windows `%APPDATA%`, Linux/macOS `~/.config`)
-   - create `<config>/hypnos/`
-   - open/create `global.db`
-   - apply WAL mode
-   - create `projects` schema idempotently
-3. Surface meaningful error for unwritable/invalid paths.
+1. Implement `getPostgresPool()`:
+   - read PostgreSQL credentials from env
+   - create a shared `pg` pool
+2. Implement `ensureProjectSchema(pool, projectRoot)`:
+   - derive `hypnos_<project_hash>`
+   - create schema if missing
+   - create `interaction_logs` table idempotently
+3. Implement `ensureGlobalSchema(pool)`:
+   - create `hypnos_global` schema if missing
+   - create `projects` table idempotently
+4. Surface meaningful error for invalid or unreachable PostgreSQL settings.
 
 exit_criteria:
-- Both DB factories return usable `better-sqlite3` instances.
-- Schema creation is idempotent.
+- Pool and schema initializers are usable and idempotent.
 
 ### PHASE 3 — GRAPH STORE (`src/surreal-client.js`)
 
@@ -130,11 +126,11 @@ exit_criteria:
 
 actions:
 1. Implement `HypnosCore` constructor:
-   - initialize project DB + global DB
-   - upsert project registration in global DB
+   - initialize PostgreSQL pool and schema handles
+   - upsert project registration in global metadata schema
    - create graph/vector client instances (no remote connect yet)
 2. Implement `init()` to connect graph and vector stores.
-3. Implement synchronous:
+3. Implement async:
    - `recordInteraction(type, content, feedback=0, metadata={})`
    - `getInteractions(filter?)`
 4. Implement async:
@@ -270,7 +266,7 @@ exit_criteria:
 
 Run in this order:
 1. static module load check (all files import correctly)
-2. SQLite-only tests
+2. relational-core tests
 3. event/context tests
 4. integration tests (Surreal + PGvector)
 5. full suite
@@ -294,7 +290,7 @@ Release is accepted when all conditions are true:
 - Required file set exists.
 - Public method signatures match DEFINITION.md.
 - Synchronous/async boundary rules respected.
-- WAL enabled for all SQLite DBs.
+- PostgreSQL relational isolation and transactions are enforced.
 - Isolation verified for multi-project operation.
 - MCP resources/tools/notifications functional.
 - 18/18 required tests pass in configured environment.

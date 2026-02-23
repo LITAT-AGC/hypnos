@@ -12,7 +12,7 @@
     "must_enforce": [
       "project_isolation",
       "offline_first",
-      "sqlite_wal",
+      "postgres_transaction_safety",
       "sync_async_honesty",
       "close_lifecycle"
     ],
@@ -47,7 +47,6 @@
             "P1-T1"
           ],
           "details": [
-            "better-sqlite3",
             "@modelcontextprotocol/sdk",
             "surrealdb",
             "pg",
@@ -106,11 +105,11 @@
     },
     {
       "id": "P2",
-      "name": "sqlite_foundation",
+      "name": "relational_foundation",
       "tasks": [
         {
           "id": "P2-T1",
-          "title": "Implement getProjectDb",
+          "title": "Implement ensureProjectSchema",
           "type": "development",
           "status": "not_started",
           "depends_on": [
@@ -118,15 +117,14 @@
           ],
           "file": "src/database.js",
           "checks": [
-            "create .hypnos dir",
-            "create/open memory.db",
-            "PRAGMA journal_mode=WAL",
+            "derive project schema from hash",
+            "create project schema if missing",
             "create interaction_logs if not exists"
           ]
         },
         {
           "id": "P2-T2",
-          "title": "Implement getGlobalDb",
+          "title": "Implement ensureGlobalSchema",
           "type": "development",
           "status": "not_started",
           "depends_on": [
@@ -134,10 +132,7 @@
           ],
           "file": "src/database.js",
           "checks": [
-            "resolve OS config dir",
-            "create hypnos dir",
-            "create/open global.db",
-            "PRAGMA journal_mode=WAL",
+            "create hypnos_global schema if missing",
             "create projects if not exists"
           ]
         },
@@ -154,7 +149,7 @@
         }
       ],
       "exit_criteria": [
-        "DB factories return usable handles",
+        "pool and schema helpers return usable handles",
         "schema creation is idempotent"
       ]
     },
@@ -367,8 +362,8 @@
           ],
           "file": "src/hypnos-core.js",
           "checks": [
-            "closes project sqlite",
-            "closes global sqlite",
+            "closes project relational resources",
+            "closes global metadata resources",
             "closes surreal",
             "closes postgres pool"
           ]
@@ -756,7 +751,7 @@
   ],
   "validation_sequence": [
     "static module import check",
-    "sqlite-only tests",
+    "relational-core tests",
     "event/context tests",
     "integration tests",
     "full suite"
@@ -765,7 +760,7 @@
     "required file set exists",
     "public method signatures match DEFINITION.md",
     "sync/async boundaries respected",
-    "WAL enabled in all SQLite DBs",
+    "PostgreSQL transaction safety enforced",
     "multi-project isolation verified",
     "MCP resources/tools/notifications functional",
     "18/18 required tests pass"

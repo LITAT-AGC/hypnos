@@ -17,19 +17,19 @@ Large language models often forget to call low-priority memory tools during task
 - Passive-first: memory capture and recall are automatic.
 - Offline-first: local persistence only for core memory.
 - Lifecycle safety: every connection must be closable via `close()`.
-- Concurrency safety: SQLite uses WAL mode.
-- Sync/async honesty: synchronous SQLite methods are not marked async.
+- Concurrency safety: relational operations rely on PostgreSQL transactional guarantees.
+- API honesty: methods are async only when they perform asynchronous I/O.
 
 ## Architecture
 
 Hypnos uses three persistence layers:
 
-1. Project store (SQLite)
-- Path: `<project-root>/.hypnos/memory.db`
+1. Project relational store (PostgreSQL)
+- Scope: schema per project (`hypnos_<project_hash>`)
 - Purpose: interaction logs
 
-2. Global metadata store (SQLite)
-- Path: `%APPDATA%/hypnos/global.db` (Windows) or `~/.config/hypnos/global.db` (Linux/macOS)
+2. Global metadata store (PostgreSQL)
+- Scope: shared schema (default `hypnos_global`)
 - Purpose: known projects, `last_accessed`, `last_sleep_cycle`
 
 3. Knowledge + semantic stores
@@ -153,9 +153,7 @@ Passive notifications (client-driven):
 
 ## Operational Notes
 
-- Add `.hypnos/` to `.gitignore`.
 - Never hardcode credentials; read from `process.env`.
-- Ensure all SQLite connections enable WAL mode.
 - Always call `HypnosCore.close()` on shutdown.
 
 ## Current Scope (v1)

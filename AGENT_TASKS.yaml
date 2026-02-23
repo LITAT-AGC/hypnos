@@ -12,7 +12,7 @@ constraints:
   must_enforce:
     - project_isolation
     - offline_first
-    - sqlite_wal
+    - postgres_transaction_safety
     - sync_async_honesty
     - close_lifecycle
   non_goals:
@@ -37,7 +37,6 @@ phases:
         status: not_started
         depends_on: [P1-T1]
         details:
-          - better-sqlite3
           - "@modelcontextprotocol/sdk"
           - surrealdb
           - pg
@@ -68,30 +67,26 @@ phases:
       - test script executes target test path
 
   - id: P2
-    name: sqlite_foundation
+    name: relational_foundation
     tasks:
       - id: P2-T1
-        title: Implement getProjectDb
+        title: Implement ensureProjectSchema
         type: development
         status: not_started
         depends_on: [P1-T2]
         file: src/database.js
         checks:
-          - create .hypnos dir
-          - create/open memory.db
-          - PRAGMA journal_mode=WAL
+          - derive project schema from hash
+          - create project schema if missing
           - create interaction_logs if not exists
       - id: P2-T2
-        title: Implement getGlobalDb
+        title: Implement ensureGlobalSchema
         type: development
         status: not_started
         depends_on: [P2-T1]
         file: src/database.js
         checks:
-          - resolve OS config dir
-          - create hypnos dir
-          - create/open global.db
-          - PRAGMA journal_mode=WAL
+          - create hypnos_global schema if missing
           - create projects if not exists
       - id: P2-T3
         title: Handle invalid/unwritable paths
@@ -100,7 +95,7 @@ phases:
         depends_on: [P2-T1, P2-T2]
         file: src/database.js
     exit_criteria:
-      - DB factories return usable handles
+      - pool and schema helpers return usable handles
       - schema creation is idempotent
 
   - id: P3
@@ -230,8 +225,8 @@ phases:
         depends_on: [P5-T2, P3-T5, P4-T4]
         file: src/hypnos-core.js
         checks:
-          - closes project sqlite
-          - closes global sqlite
+          - closes project relational resources
+          - closes global metadata resources
           - closes surreal
           - closes postgres pool
     exit_criteria:
@@ -376,7 +371,7 @@ phases:
 
 validation_sequence:
   - static module import check
-  - sqlite-only tests
+  - relational-core tests
   - event/context tests
   - integration tests
   - full suite
@@ -385,7 +380,7 @@ acceptance_contract:
   - required file set exists
   - public method signatures match DEFINITION.md
   - sync/async boundaries respected
-  - WAL enabled in all SQLite DBs
+  - PostgreSQL transaction safety enforced
   - multi-project isolation verified
   - MCP resources/tools/notifications functional
   - 18/18 required tests pass

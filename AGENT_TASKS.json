@@ -1,0 +1,773 @@
+{
+  "schema_version": "1.0",
+  "project": "hypnos",
+  "source": "AGENT_PLAN.md",
+  "generated_at": "2026-02-23",
+  "mode": "machine_first",
+  "defaults": {
+    "status": "not_started",
+    "owner": "ai-agent"
+  },
+  "constraints": {
+    "must_enforce": [
+      "project_isolation",
+      "offline_first",
+      "sqlite_wal",
+      "sync_async_honesty",
+      "close_lifecycle"
+    ],
+    "non_goals": [
+      "fine_tuning_pipeline",
+      "scheduled_sleep_cycles",
+      "cross_project_federation",
+      "embedding_model_selection_framework"
+    ]
+  },
+  "phases": [
+    {
+      "id": "P1",
+      "name": "bootstrap",
+      "tasks": [
+        {
+          "id": "P1-T1",
+          "title": "Initialize npm project",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [],
+          "outputs": [
+            "package.json"
+          ]
+        },
+        {
+          "id": "P1-T2",
+          "title": "Install runtime dependencies",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P1-T1"
+          ],
+          "details": [
+            "better-sqlite3",
+            "@modelcontextprotocol/sdk",
+            "surrealdb",
+            "pg",
+            "dotenv"
+          ]
+        },
+        {
+          "id": "P1-T3",
+          "title": "Create gitignore entries",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P1-T1"
+          ],
+          "outputs": [
+            ".gitignore"
+          ],
+          "required_entries": [
+            "node_modules/",
+            ".hypnos/",
+            ".env",
+            "*.db"
+          ]
+        },
+        {
+          "id": "P1-T4",
+          "title": "Create environment template",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P1-T1"
+          ],
+          "outputs": [
+            ".env.example"
+          ]
+        },
+        {
+          "id": "P1-T5",
+          "title": "Configure ESM and scripts",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P1-T1",
+            "P1-T2"
+          ],
+          "required_scripts": {
+            "test": "node --test test/hypnos.test.js",
+            "start": "node src/mcp-server.js"
+          }
+        }
+      ],
+      "exit_criteria": [
+        "npm install completes",
+        "test script executes target test path"
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "sqlite_foundation",
+      "tasks": [
+        {
+          "id": "P2-T1",
+          "title": "Implement getProjectDb",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P1-T2"
+          ],
+          "file": "src/database.js",
+          "checks": [
+            "create .hypnos dir",
+            "create/open memory.db",
+            "PRAGMA journal_mode=WAL",
+            "create interaction_logs if not exists"
+          ]
+        },
+        {
+          "id": "P2-T2",
+          "title": "Implement getGlobalDb",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P2-T1"
+          ],
+          "file": "src/database.js",
+          "checks": [
+            "resolve OS config dir",
+            "create hypnos dir",
+            "create/open global.db",
+            "PRAGMA journal_mode=WAL",
+            "create projects if not exists"
+          ]
+        },
+        {
+          "id": "P2-T3",
+          "title": "Handle invalid/unwritable paths",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P2-T1",
+            "P2-T2"
+          ],
+          "file": "src/database.js"
+        }
+      ],
+      "exit_criteria": [
+        "DB factories return usable handles",
+        "schema creation is idempotent"
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "surreal_graph_store",
+      "tasks": [
+        {
+          "id": "P3-T1",
+          "title": "Implement SurrealKnowledgeGraph class",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P1-T2"
+          ],
+          "file": "src/surreal-client.js"
+        },
+        {
+          "id": "P3-T2",
+          "title": "Implement connect lifecycle",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P3-T1"
+          ],
+          "file": "src/surreal-client.js"
+        },
+        {
+          "id": "P3-T3",
+          "title": "Implement entity and relation upserts",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P3-T2"
+          ],
+          "file": "src/surreal-client.js",
+          "checks": [
+            "strength increments on duplicate edge",
+            "source_log_ids appends source log id"
+          ]
+        },
+        {
+          "id": "P3-T4",
+          "title": "Implement query and traversal methods",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P3-T3"
+          ],
+          "file": "src/surreal-client.js"
+        },
+        {
+          "id": "P3-T5",
+          "title": "Implement close",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P3-T2"
+          ],
+          "file": "src/surreal-client.js"
+        }
+      ],
+      "exit_criteria": [
+        "relation reinforcement works",
+        "query and traversal return structured data"
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "pgvector_store",
+      "tasks": [
+        {
+          "id": "P4-T1",
+          "title": "Implement VectorStore class",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P1-T2"
+          ],
+          "file": "src/vector-store.js"
+        },
+        {
+          "id": "P4-T2",
+          "title": "Implement connect and schema setup",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P4-T1"
+          ],
+          "file": "src/vector-store.js",
+          "checks": [
+            "CREATE EXTENSION IF NOT EXISTS vector",
+            "create project schema",
+            "create embeddings table",
+            "create HNSW index"
+          ]
+        },
+        {
+          "id": "P4-T3",
+          "title": "Implement index and search methods",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P4-T2"
+          ],
+          "file": "src/vector-store.js",
+          "checks": [
+            "search uses cosine distance operator <=>"
+          ]
+        },
+        {
+          "id": "P4-T4",
+          "title": "Implement close",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P4-T2"
+          ],
+          "file": "src/vector-store.js"
+        }
+      ],
+      "exit_criteria": [
+        "embedding inserts work",
+        "nearest-neighbor queries return rows"
+      ]
+    },
+    {
+      "id": "P5",
+      "name": "core_orchestration",
+      "tasks": [
+        {
+          "id": "P5-T1",
+          "title": "Implement HypnosCore constructor",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P2-T2",
+            "P3-T1",
+            "P4-T1"
+          ],
+          "file": "src/hypnos-core.js"
+        },
+        {
+          "id": "P5-T2",
+          "title": "Implement init",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T1",
+            "P3-T2",
+            "P4-T2"
+          ],
+          "file": "src/hypnos-core.js"
+        },
+        {
+          "id": "P5-T3",
+          "title": "Implement synchronous interaction APIs",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T1"
+          ],
+          "file": "src/hypnos-core.js",
+          "checks": [
+            "recordInteraction is synchronous",
+            "getInteractions is synchronous"
+          ]
+        },
+        {
+          "id": "P5-T4",
+          "title": "Implement runSleepCycle",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T2",
+            "P5-T3",
+            "P3-T3",
+            "P4-T3"
+          ],
+          "file": "src/hypnos-core.js",
+          "checks": [
+            "process only logs with user_feedback != 0",
+            "feedback=1 logs update graph",
+            "all processed logs vectorized with placeholder embedding",
+            "update global last_sleep_cycle",
+            "return summary object"
+          ]
+        },
+        {
+          "id": "P5-T5",
+          "title": "Implement knowledge and semantic query delegates",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T2",
+            "P3-T4",
+            "P4-T3"
+          ],
+          "file": "src/hypnos-core.js"
+        },
+        {
+          "id": "P5-T6",
+          "title": "Implement close lifecycle",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T2",
+            "P3-T5",
+            "P4-T4"
+          ],
+          "file": "src/hypnos-core.js",
+          "checks": [
+            "closes project sqlite",
+            "closes global sqlite",
+            "closes surreal",
+            "closes postgres pool"
+          ]
+        }
+      ],
+      "exit_criteria": [
+        "sleep cycle returns expected summary",
+        "close fully releases all resources"
+      ]
+    },
+    {
+      "id": "P6",
+      "name": "passive_events",
+      "tasks": [
+        {
+          "id": "P6-T1",
+          "title": "Implement EventListener adapter",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T3"
+          ],
+          "file": "src/event-listener.js"
+        },
+        {
+          "id": "P6-T2",
+          "title": "Implement event mappings to interactions",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P6-T1"
+          ],
+          "file": "src/event-listener.js"
+        }
+      ],
+      "exit_criteria": [
+        "all callbacks record expected event_type, feedback, metadata"
+      ]
+    },
+    {
+      "id": "P7",
+      "name": "context_builder",
+      "tasks": [
+        {
+          "id": "P7-T1",
+          "title": "Implement ContextBuilder and context methods",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T3",
+            "P5-T5"
+          ],
+          "file": "src/context-builder.js"
+        },
+        {
+          "id": "P7-T2",
+          "title": "Implement sectioned memory formatting",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P7-T1"
+          ],
+          "file": "src/context-builder.js",
+          "checks": [
+            "includes [Project Memory]",
+            "includes Recent Activity",
+            "includes Known Patterns",
+            "includes Relevant Context"
+          ]
+        },
+        {
+          "id": "P7-T3",
+          "title": "Implement token budget truncation",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P7-T2"
+          ],
+          "file": "src/context-builder.js"
+        }
+      ],
+      "exit_criteria": [
+        "output deterministic and token bounded"
+      ]
+    },
+    {
+      "id": "P8",
+      "name": "mcp_server",
+      "tasks": [
+        {
+          "id": "P8-T1",
+          "title": "Implement server startup and env loading",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T2",
+            "P6-T1",
+            "P7-T1"
+          ],
+          "file": "src/mcp-server.js"
+        },
+        {
+          "id": "P8-T2",
+          "title": "Register MCP resources",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P8-T1"
+          ],
+          "file": "src/mcp-server.js",
+          "checks": [
+            "hypnos://memory/context",
+            "hypnos://memory/context/{filePath}"
+          ]
+        },
+        {
+          "id": "P8-T3",
+          "title": "Register MCP tools",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P8-T1"
+          ],
+          "file": "src/mcp-server.js",
+          "checks": [
+            "hypnos_search",
+            "hypnos_traverse",
+            "hypnos_sleep"
+          ]
+        },
+        {
+          "id": "P8-T4",
+          "title": "Register passive notifications",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P8-T1",
+            "P6-T2"
+          ],
+          "file": "src/mcp-server.js"
+        },
+        {
+          "id": "P8-T5",
+          "title": "Implement graceful shutdown",
+          "type": "development",
+          "status": "not_started",
+          "depends_on": [
+            "P8-T1",
+            "P5-T6"
+          ],
+          "file": "src/mcp-server.js"
+        }
+      ],
+      "exit_criteria": [
+        "resources/tools/notifications dispatch correctly",
+        "shutdown closes all resources"
+      ]
+    },
+    {
+      "id": "P9",
+      "name": "test_suite",
+      "tasks": [
+        {
+          "id": "P9-T1",
+          "title": "Test 1 project isolation",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T3"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T2",
+          "title": "Test 2 interaction recording + metadata round-trip",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T3"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T3",
+          "title": "Test 3 feedback filtering",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T3"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T4",
+          "title": "Test 4 file change event",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P6-T2"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T5",
+          "title": "Test 5 suggestion accepted event",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P6-T2"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T6",
+          "title": "Test 6 suggestion rejected event",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P6-T2"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T7",
+          "title": "Test 7 conversation turn event",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P6-T2"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T8",
+          "title": "Test 8 sleep cycle consolidation",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T4"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T9",
+          "title": "Test 9 relation strength reinforcement",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T4"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T10",
+          "title": "Test 10 graph traversal",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T5"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T11",
+          "title": "Test 11 semantic search",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T5"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T12",
+          "title": "Test 12 context build",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P7-T2"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T13",
+          "title": "Test 13 context token limit",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P7-T3"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T14",
+          "title": "Test 14 context for file",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P7-T1"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T15",
+          "title": "Test 15 close lifecycle",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P5-T6"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T16",
+          "title": "Test 16 invalid project root",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P2-T3"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T17",
+          "title": "Test 17 Surreal connection failure",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P3-T2"
+          ],
+          "file": "test/hypnos.test.js"
+        },
+        {
+          "id": "P9-T18",
+          "title": "Test 18 PG connection failure",
+          "type": "testing",
+          "status": "not_started",
+          "depends_on": [
+            "P4-T2"
+          ],
+          "file": "test/hypnos.test.js"
+        }
+      ],
+      "runtime_rules": [
+        "use node:test + node:assert",
+        "create temp dirs and cleanup in t.after",
+        "keep tests order-independent",
+        "integration tests require SurrealDB and PostgreSQL with pgvector"
+      ],
+      "exit_criteria": [
+        "all 18 required tests pass in provisioned environment"
+      ]
+    },
+    {
+      "id": "P10",
+      "name": "docs_delivery",
+      "tasks": [
+        {
+          "id": "P10-T1",
+          "title": "Document setup and operations",
+          "type": "documentation",
+          "status": "not_started",
+          "depends_on": [
+            "P8-T5",
+            "P9-T18"
+          ],
+          "outputs": [
+            "README.md",
+            "docs/*"
+          ],
+          "required_content": [
+            "prerequisites",
+            "env configuration",
+            "start/test commands",
+            "architecture summary",
+            "SurrealDB/PostgreSQL operational notes",
+            "close lifecycle guarantees"
+          ]
+        }
+      ],
+      "exit_criteria": [
+        "new agent can setup, test, and run server from docs only"
+      ]
+    }
+  ],
+  "validation_sequence": [
+    "static module import check",
+    "sqlite-only tests",
+    "event/context tests",
+    "integration tests",
+    "full suite"
+  ],
+  "acceptance_contract": [
+    "required file set exists",
+    "public method signatures match DEFINITION.md",
+    "sync/async boundaries respected",
+    "WAL enabled in all SQLite DBs",
+    "multi-project isolation verified",
+    "MCP resources/tools/notifications functional",
+    "18/18 required tests pass"
+  ]
+}
